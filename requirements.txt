@@ -1,7 +1,0 @@
-requests
-requests-oauthlib
-google-generativeai
-sentence-transformers
-torch
-schedule
-openai
