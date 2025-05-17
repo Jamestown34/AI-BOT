@@ -6,10 +6,7 @@ from requests_oauthlib import OAuth1Session
 import datetime
 import schedule
 import time
-from sentence_transformers import SentenceTransformer, util
-import torch
 import json
-import yaml  # For configuration file
 
 # Configure logging
 logging.basicConfig(
@@ -52,9 +49,8 @@ def setup_gemini_api():
         logging.error(f"❌ Gemini API configuration failed: {e}")
         return None
 
-
 # Generate Tweet
-def generate_tweet(gemini_model, topic, existing_tweets):
+def generate_tweet(gemini_model, topic):
     if not gemini_model:
         return None
 
@@ -80,23 +76,18 @@ def generate_tweet(gemini_model, topic, existing_tweets):
             response = gemini_model.generate_content(selected_style)
             tweet_text = response.text.strip()
 
-            if len(tweet_text) > max_length:
-                logging.warning(f"⚠️ Generated tweet exceeds maximum length ({len(tweet_text)} characters). Retrying.")
-                retry_count += 1
-                continue
-
-            if not is_semantically_similar(tweet_text, existing_tweets):
+            if len(tweet_text) <= max_length:
                 logging.info(f"✅ Generated tweet: {tweet_text}")
                 return tweet_text
             else:
-                logging.info(f"⏭️ Generated tweet was similar to existing tweets, generating new tweet (attempt {retry_count + 1}/{max_retries}).")
+                logging.warning(f"⚠️ Generated tweet exceeds maximum length ({len(tweet_text)} characters). Retrying.")
                 retry_count += 1
 
         except Exception as e:
             logging.error(f"❌ Gemini API tweet generation failed (attempt {retry_count + 1}/{max_retries}): {e}")
             retry_count += 1
 
-    logging.error("❌ Failed to generate a unique tweet after multiple retries.")
+    logging.error("❌ Failed to generate a suitable tweet after multiple retries.")
     return None
 
 # Post Tweet
@@ -114,21 +105,19 @@ def post_tweet(oauth, tweet_text):
 
         tweet_id = response.json()['data']['id']
         logging.info(f"✅ Tweet posted: {tweet_text} (ID: {tweet_id})")
-        save_posted_tweet(tweet_text)  # Save the posted tweet
     except Exception as e:
         logging.error(f"❌ Twitter API error: {e}")
 
-# Scheduled Tweet Posting (for one execution - modified to load existing tweets)
+# Scheduled Tweet Posting (for one execution)
 def run_scheduled_tweets_once():
     logging.info("✅ run_scheduled_tweets_once() function has started for this execution.")
     schedule_times_str = os.environ.get('SCHEDULE_TIMES', '["07:00", "13:00", "19:00"]')
     schedule_times = json.loads(schedule_times_str)
     tweets_to_post = []
-    existing_tweets = load_existing_tweets()  # Load existing tweets at the start
 
     for time_str in schedule_times:
         try:
-            schedule.every().day.at(time_str).do(lambda t=time_str, existing=existing_tweets: tweets_to_post.append(generate_and_post(t, existing)))
+            schedule.every().day.at(time_str).do(lambda t=time_str: tweets_to_post.append(generate_and_post(t)))
             logging.info(f"⏰ Scheduled generation for {time_str}")
         except schedule.InvalidTimeError:
             logging.error(f"❌ Invalid schedule time: {time_str}")
@@ -142,7 +131,7 @@ def run_scheduled_tweets_once():
     logging.info("✅ Scheduled tasks completed for this execution.")
     return [tweet for tweet in tweets_to_post if tweet is not None]
 
-def generate_and_post(schedule_time, existing_tweets):
+def generate_and_post(schedule_time):
     logging.info(f"➡️ Attempting to generate and post for schedule time: {schedule_time}")
     oauth = setup_twitter_oauth()
     gemini_model = setup_gemini_api()
@@ -181,7 +170,7 @@ def generate_and_post(schedule_time, existing_tweets):
 
     topic = random.choice(topics)
     logging.info(f"🔹 Generating tweet for topic: {topic}")
-    tweet_text = generate_tweet(gemini_model, topic, existing_tweets)
+    tweet_text = generate_tweet(gemini_model, topic)
 
     if tweet_text:
         logging.info("🔹 Posting tweet now...")
