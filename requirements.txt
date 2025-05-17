@@ -1,0 +1,7 @@
+google-generativeai
+requests-oauthlib
+schedule
+sentence-transformers
+torch
+gspread
+google-auth
